@@ -52,114 +52,61 @@
 <div id="footerNote">Assets folder: <code>/tiles</code> and <code>/buildings</code></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-// =====================================================
-// 1) ระบบโหลดไฟล์ PNG ผ่าน assets.json  (วางตรงนี้)
-// =====================================================
+<script type="module">
 
-async function loadTileAssets() {
-  const res = await fetch("tiles/assets.json");
-  const data = await res.json();
-  const loader = new THREE.TextureLoader();
-  const tiles = {};
+  // =========================================
+// Load assets แล้วเริ่มสร้างแผนที่
+// =========================================
+const TILE_TEX   = await loadTileAssets();
+const SPRITE_TEX = await loadBuildingAssets();
 
-  for (const file of data.tiles) {
-    const name = file.replace(".png", "");
-    tiles[name] = loader.load("tiles/" + file);
-  }
+console.log("TILE_TEX =", TILE_TEX);
+console.log("SPRITE_TEX =", SPRITE_TEX);
 
-  return tiles;
+// =========================================
+// Map builder
+// =========================================
+const tileGroup = new THREE.Group();
+scene.add(tileGroup);
+
+const planeGeo = new THREE.PlaneGeometry(TILE_W, TILE_W);
+planeGeo.rotateX(-Math.PI/2);
+
+function gridToWorld(x,y){
+  const startX = -(MAP_W/2)*TILE_W + TILE_W/2;
+  const startZ = -(MAP_H/2)*TILE_W + TILE_W/2;
+  return {x:startX + x*TILE_W, z:startZ + y*TILE_W};
 }
 
-async function loadBuildingAssets() {
-  const res = await fetch("buildings/assets.json");
-  const data = await res.json();
-  const loader = new THREE.TextureLoader();
-  const buildings = {};
-
-  for (const file of data.buildings) {
-    const name = file.replace(".png", "");
-    buildings[name] = loader.load("buildings/" + file);
-  }
-
-  return buildings;
-}
-/* -----------------------
-   Config
-------------------------*/
-const MAP_W = 20, MAP_H = 20;
-const TILE_W = 1.28, TILE_H = 0.64;
-let money = 200, pop = 0, timeTick = 0;
-let tool = null;
-
-/* -----------------------
-   Three setup
-------------------------*/
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x06101e);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setPixelRatio(window.devicePixelRatio || 1);
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.getElementById('canvas-wrap').appendChild(renderer.domElement);
-
-const aspect = window.innerWidth / window.innerHeight;
-const camSize = 16;
-const camera = new THREE.OrthographicCamera(
-  camSize * aspect / -2, camSize * aspect / 2,
-  camSize / 2, camSize / -2,
-  -200, 200
-);
-
-let isoYaw = 45 * Math.PI/180;
-let isoPitch = -35 * Math.PI/180;
-let camRadius = 20;
-function updateCamera(){
-  const x = camRadius * Math.cos(isoPitch) * Math.cos(isoYaw);
-  const y = camRadius * Math.sin(isoPitch) + 6;
-  const z = camRadius * Math.cos(isoPitch) * Math.sin(isoYaw);
-  camera.position.set(x,y,z);
-  camera.lookAt(0,0,0);
-  camera.updateProjectionMatrix();
-}
-updateCamera();
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-dir.position.set(10,20,10);
-scene.add(dir);
-
-/* -----------------------
-   Asset auto-loader
-   Requires directory listing permitted by server
-------------------------*/
-async function loadFolder(folder){
-  try{
-    const res = await fetch(folder);
-    const txt = await res.text();
-    const matches = [...txt.matchAll(/href="([^"]+\.png)"/g)].map(m=>m[1]);
-    const loader = new THREE.TextureLoader();
-    const out = {};
-    for(const f of matches){
-      const name = f.replace(/\.png$/i,'');
-      out[name] = loader.load(folder + f);
-      out[name].magFilter = THREE.LinearFilter;
-      out[name].minFilter = THREE.LinearMipMapLinearFilter;
-      console.log('Loaded', folder+f);
+function buildMap(){
+  for(let y=0;y<MAP_H;y++){
+    for(let x=0;x<MAP_W;x++){
+      const mat = new THREE.MeshBasicMaterial({
+        map: TILE_TEX.grass,
+        transparent: true
+      });
+      const m = new THREE.Mesh(planeGeo, mat);
+      const p = gridToWorld(x,y);
+      m.position.set(p.x, 0, p.z);
+      tileGroup.add(m);
     }
-    return out;
-  }catch(e){
-    console.warn('Failed to load folder', folder, e);
-    return {};
   }
 }
 
-let TILE_TEX = {}, SPRITE_TEX = {};
-async function loadAll(){
-  TILE_TEX = await loadFolder('tiles/');
-  SPRITE_TEX = await loadFolder('buildings/');
+buildMap();
+
+// =========================================
+// Render loop
+// =========================================
+function animate(){
+  requestAnimationFrame(animate);
+  renderer.render(scene,camera);
 }
-await loadAll();
+
+animate();
+
+
+
 
 /* -----------------------
    Map + display
