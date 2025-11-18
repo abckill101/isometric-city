@@ -27,13 +27,14 @@
   button.small{padding:6px 8px;font-size:13px}
 </style>
 </head>
+
 <body>
 
 <div id="ui">
   <div style="font-weight:700">2.5D Isometric City — Demo</div>
   <div style="font-size:13px;margin-top:6px">Auto-loaded assets from <code>/tiles/</code> and <code>/buildings/</code></div>
 
-  <div id="toolbar" aria-label="tools"></div>
+  <div id="toolbar"></div>
 
   <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
     <button id="btnTick" class="tool small">Tick</button>
@@ -45,380 +46,257 @@
   <div id="info">
     Money: <span id="money">200</span> &nbsp; • &nbsp; Pop: <span id="pop">0</span> &nbsp; • &nbsp; Time: <span id="time">0</span>
   </div>
-  <div style="margin-top:8px;font-size:12px;color:#9fb">Tip: drag to pan, wheel/pinch to zoom, click to place. Use server (Live Server or python -m http.server).</div>
 </div>
 
 <div id="canvas-wrap"></div>
 <div id="footerNote">Assets folder: <code>/tiles</code> and <code>/buildings</code></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
 <script type="module">
 
-  // =========================================
-// Load assets แล้วเริ่มสร้างแผนที่
-// =========================================
-const TILE_TEX   = await loadTileAssets();
-const SPRITE_TEX = await loadBuildingAssets();
+/* ============================================================
+   CONFIG
+============================================================ */
+const MAP_W = 20, MAP_H = 20;
+const TILE_W = 1.28;
+let money = 200, pop = 0, timeTick = 0;
+let tool = "grass";
 
-console.log("TILE_TEX =", TILE_TEX);
-console.log("SPRITE_TEX =", SPRITE_TEX);
-
-// =========================================
-// Map builder
-// =========================================
-const tileGroup = new THREE.Group();
-scene.add(tileGroup);
-
-const planeGeo = new THREE.PlaneGeometry(TILE_W, TILE_W);
-planeGeo.rotateX(-Math.PI/2);
-
-function gridToWorld(x,y){
-  const startX = -(MAP_W/2)*TILE_W + TILE_W/2;
-  const startZ = -(MAP_H/2)*TILE_W + TILE_W/2;
-  return {x:startX + x*TILE_W, z:startZ + y*TILE_W};
-}
-
-function buildMap(){
-  for(let y=0;y<MAP_H;y++){
-    for(let x=0;x<MAP_W;x++){
-      const mat = new THREE.MeshBasicMaterial({
-        map: TILE_TEX.grass,
-        transparent: true
-      });
-      const m = new THREE.Mesh(planeGeo, mat);
-      const p = gridToWorld(x,y);
-      m.position.set(p.x, 0, p.z);
-      tileGroup.add(m);
-    }
+/* ============================================================
+   LOAD ASSETS JSON
+============================================================ */
+async function loadTileAssets(){
+  const res = await fetch("tiles/assets.json");
+  const data = await res.json();
+  const loader = new THREE.TextureLoader();
+  const out = {};
+  for(const f of data.tiles){
+    const name = f.replace(".png","");
+    out[name] = loader.load("tiles/" + f);
   }
+  return out;
 }
 
-buildMap();
-
-// =========================================
-// Render loop
-// =========================================
-function animate(){
-  requestAnimationFrame(animate);
-  renderer.render(scene,camera);
+async function loadBuildingAssets(){
+  const res = await fetch("buildings/assets.json");
+  const data = await res.json();
+  const loader = new THREE.TextureLoader();
+  const out = {};
+  for(const f of data.buildings){
+    const name = f.replace(".png","");
+    out[name] = loader.load("buildings/" + f);
+  }
+  return out;
 }
 
-animate();
+/* ============================================================
+   THREE.JS SETUP
+============================================================ */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x06101e);
 
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.getElementById("canvas-wrap").appendChild(renderer.domElement);
 
+const aspect = window.innerWidth / window.innerHeight;
+const camSize = 16;
+const camera = new THREE.OrthographicCamera(
+  camSize*aspect/-2, camSize*aspect/2,
+  camSize/2, camSize/-2,
+  -200, 200
+);
 
-</script>
-/* -----------------------
-   Map + display
-------------------------*/
-const planeGeo = new THREE.PlaneGeometry(TILE_W, TILE_H);
-planeGeo.rotateX(-Math.PI/2);
+let isoYaw = 45*Math.PI/180;
+let isoPitch = -35*Math.PI/180;
+let camRadius = 20;
 
+function updateCamera(){
+  const x = camRadius*Math.cos(isoPitch)*Math.cos(isoYaw);
+  const y = camRadius*Math.sin(isoPitch)+6;
+  const z = camRadius*Math.cos(isoPitch)*Math.sin(isoYaw);
+  camera.position.set(x,y,z);
+  camera.lookAt(0,0,0);
+  camera.updateProjectionMatrix();
+}
+updateCamera();
+
+scene.add(new THREE.AmbientLight(0xffffff,0.45));
+const dir = new THREE.DirectionalLight(0xffffff,0.9);
+dir.position.set(10,20,10);
+scene.add(dir);
+
+/* ============================================================
+   MAP BUILDER
+============================================================ */
 const tileGroup = new THREE.Group();
 const spriteGroup = new THREE.Group();
 scene.add(tileGroup, spriteGroup);
 
+const planeGeo = new THREE.PlaneGeometry(TILE_W, TILE_W);
+planeGeo.rotateX(-Math.PI/2);
+
 const map = [];
-function gridToWorld(ix,iy){
-  const startX = - (MAP_W/2)*TILE_W + TILE_W/2;
-  const startZ = - (MAP_H/2)*TILE_W + TILE_W/2;
-  return { x: startX + ix * TILE_W, z: startZ + iy * TILE_W };
+
+function gridToWorld(x,y){
+  const sx = -(MAP_W/2)*TILE_W + TILE_W/2;
+  const sz = -(MAP_H/2)*TILE_W + TILE_W/2;
+  return { x: sx + x*TILE_W, z: sz + y*TILE_W };
 }
 
-function createTileMesh(xi, yi, tex){
-  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
-  const mesh = new THREE.Mesh(planeGeo, mat);
-  const p = gridToWorld(xi, yi);
-  mesh.position.set(p.x, 0, p.z);
-  mesh.userData = {xi, yi};
+function createTileMesh(x,y,tex){
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent:true });
+  const mesh = new THREE.Mesh(planeGeo,mat);
+  const p = gridToWorld(x,y);
+  mesh.position.set(p.x,0,p.z);
   return mesh;
 }
 
-function initMap(defaultTileName){
+function initMap(defaultTile){
   tileGroup.clear();
   spriteGroup.clear();
-  map.length = 0;
   for(let y=0;y<MAP_H;y++){
     map[y] = [];
     for(let x=0;x<MAP_W;x++){
-      const tex = TILE_TEX[defaultTileName] || Object.values(TILE_TEX)[0] || null;
-      const mesh = createTileMesh(x,y, tex);
+      const tex = TILE_TEX[defaultTile];
+      const mesh = createTileMesh(x,y,tex);
       tileGroup.add(mesh);
-      map[y][x] = { tile: defaultTileName || Object.keys(TILE_TEX)[0] || 'grass', mesh: mesh, sprite: null };
+      map[y][x] = { tile: defaultTile, mesh, sprite:null };
     }
   }
 }
-initMap(Object.keys(TILE_TEX)[0] || 'grass');
 
-/* -----------------------
-   Sprite helper
-------------------------*/
-function makeSprite(texture, size=2.0){
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(size, size, 1);
-  return sprite;
+/* ============================================================
+   BUILDINGS
+============================================================ */
+function makeSprite(tex){
+  const m = new THREE.SpriteMaterial({ map: tex, transparent:true });
+  const s = new THREE.Sprite(m);
+  s.scale.set(2,2,1);
+  return s;
 }
 
-function placeBuilding(ix, iy, type){
-  if(ix<0||iy<0||ix>=MAP_W||iy>=MAP_H) return;
-  // remove existing
-  if(map[iy][ix].sprite){
-    spriteGroup.remove(map[iy][ix].sprite);
-    map[iy][ix].sprite = null;
-  }
-  if(type === 'erase') return;
-  if(!SPRITE_TEX[type]){
-    console.warn('No sprite', type);
-    return;
-  }
-  const sprite = makeSprite(SPRITE_TEX[type], 2.0);
-  const p = gridToWorld(ix, iy);
-  sprite.position.set(p.x, 0.8, p.z);
-  sprite.userData = { ix, iy, type };
-  spriteGroup.add(sprite);
-  map[iy][ix].sprite = sprite;
-  if(type === 'house') pop++;
+function placeBuilding(x,y,name){
+  if(!SPRITE_TEX[name]) return;
+  const sp = makeSprite(SPRITE_TEX[name]);
+  const p = gridToWorld(x,y);
+  sp.position.set(p.x,0.8,p.z);
+  spriteGroup.add(sp);
+  map[y][x].sprite = sp;
 }
 
-/* -----------------------
-   Tile setter
-------------------------*/
-function setTile(ix, iy, type){
-  if(ix<0||iy<0||ix>=MAP_W||iy>=MAP_H) return;
-  if(!TILE_TEX[type]){ console.warn('No tile', type); return; }
-  map[iy][ix].tile = type;
-  map[iy][ix].mesh.material.map = TILE_TEX[type];
-  map[iy][ix].mesh.material.needsUpdate = true;
+/* ============================================================
+   TILE SETTER
+============================================================ */
+function setTile(x,y,name){
+  const tex = TILE_TEX[name];
+  map[y][x].mesh.material.map = tex;
+  map[y][x].mesh.material.needsUpdate = true;
+  map[y][x].tile = name;
 }
 
-/* -----------------------
-   Raycast util
-------------------------*/
+/* ============================================================
+   MOUSE + RAYCAST
+============================================================ */
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-function getGridFromPointer(clientX, clientY){
+
+function getGridFromPointer(mx,my){
   const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
-  const intersect = new THREE.Vector3();
-  raycaster.ray.intersectPlane(plane, intersect);
-  if(!intersect) return null;
-  const startX = - (MAP_W/2)*TILE_W + TILE_W/2;
-  const startZ = - (MAP_H/2)*TILE_W + TILE_W/2;
-  const fx = (intersect.x - startX) / TILE_W;
-  const fz = (intersect.z - startZ) / TILE_W;
-  const xi = Math.floor(fx + 0.5);
-  const yi = Math.floor(fz + 0.5);
-  if(xi<0||yi<0||xi>=MAP_W||yi>=MAP_H) return null;
-  return { x: xi, y: yi };
+  pointer.x = ((mx-rect.left)/rect.width)*2-1;
+  pointer.y = -((my-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(pointer,camera);
+
+  const plane = new THREE.Plane(new THREE.Vector3(0,1,0),0);
+  const hit = new THREE.Vector3();
+  raycaster.ray.intersectPlane(plane,hit);
+
+  const sx = -(MAP_W/2)*TILE_W + TILE_W/2;
+  const sz = -(MAP_H/2)*TILE_W + TILE_W/2;
+
+  const fx = (hit.x-sx)/TILE_W;
+  const fz = (hit.z-sz)/TILE_W;
+
+  const x = Math.floor(fx+0.5);
+  const y = Math.floor(fz+0.5);
+
+  if(x<0||y<0||x>=MAP_W||y>=MAP_H) return null;
+  return {x,y};
 }
 
-/* -----------------------
-   Input: pan/zoom/place
-------------------------*/
-let isPointerDown=false, isPanning=false, lastX=0, lastY=0;
-renderer.domElement.addEventListener('pointerdown', e=>{
-  isPointerDown = true;
-  lastX = e.clientX; lastY = e.clientY;
-  if(tool === 'pan'){ isPanning = true; }
-  else {
-    const g = getGridFromPointer(e.clientX, e.clientY);
-    if(g){
-      if(TILE_TEX[tool]) setTile(g.x, g.y, tool);
-      if(SPRITE_TEX[tool]) placeBuilding(g.x, g.y, tool);
-      if(tool === 'erase') placeBuilding(g.x, g.y, 'erase');
-      updateUI();
-    }
+/* ============================================================
+   INPUT
+============================================================ */
+let isDown=false, isPan=false, lx=0, ly=0;
+
+renderer.domElement.addEventListener("pointerdown",e=>{
+  isDown=true;
+  lx=e.clientX; ly=e.clientY;
+
+  const g = getGridFromPointer(e.clientX,e.clientY);
+  if(g){
+    if(TILE_TEX[tool]) setTile(g.x,g.y,tool);
+    if(SPRITE_TEX[tool]) placeBuilding(g.x,g.y,tool);
   }
 });
-renderer.domElement.addEventListener('pointermove', e=>{
-  if(!isPointerDown) return;
-  if(isPanning){
-    const dx = (e.clientX - lastX) * 0.01;
-    const dy = (e.clientY - lastY) * 0.01;
-    isoYaw -= dx * 0.4;
-    camRadius += dy * 0.8;
-    camRadius = Math.max(6, Math.min(80, camRadius));
-    updateCamera();
-  }
-  lastX = e.clientX; lastY = e.clientY;
-});
-renderer.domElement.addEventListener('pointerup', ()=>{ isPointerDown=false; isPanning=false; });
 
-renderer.domElement.addEventListener('wheel', e=>{
-  e.preventDefault();
-  camRadius += e.deltaY * 0.02;
-  camRadius = Math.max(6, Math.min(80, camRadius));
-  updateCamera();
-},{passive:false});
+renderer.domElement.addEventListener("pointerup",()=> isDown=false);
 
-/* basic touch pinch zoom */
-let ongoingTouches = [];
-renderer.domElement.addEventListener('touchstart', e=>{
-  if(e.touches.length === 2){
-    ongoingTouches = [...e.touches].map(t=>({id:t.identifier,x:t.clientX,y:t.clientY}));
-  }
-});
-renderer.domElement.addEventListener('touchmove', e=>{
-  if(e.touches.length === 2){
-    const t0 = e.touches[0], t1 = e.touches[1];
-    const dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
-    const dist = Math.hypot(dx,dy);
-    const od = ongoingTouches;
-    if(od.length === 2){
-      const odx = od[1].x - od[0].x, ody = od[1].y - od[0].y;
-      const odst = Math.hypot(odx, ody) || 1;
-      const factor = dist / odst;
-      camRadius /= factor;
-      camRadius = Math.max(6, Math.min(80, camRadius));
-      updateCamera();
-    }
-    ongoingTouches = [...e.touches].map(t=>({id:t.identifier,x:t.clientX,y:t.clientY}));
-    e.preventDefault();
-  }
-},{passive:false});
-
-/* -----------------------
-   UI toolbar build
-------------------------*/
+/* ============================================================
+   UI TOOLBAR
+============================================================ */
 function buildToolbar(){
-  const bar = document.getElementById('toolbar');
-  bar.innerHTML = '';
-  // tiles first
-  for(const t of Object.keys(TILE_TEX)){
-    const btn = document.createElement('div');
-    btn.className = 'tool';
-    btn.textContent = t;
-    btn.onclick = ()=>{ selectTool(t, btn); };
-    bar.appendChild(btn);
+  const bar = document.getElementById("toolbar");
+  bar.innerHTML = "";
+
+  for(const t in TILE_TEX){
+    const b = document.createElement("div");
+    b.className="tool";
+    b.textContent=t;
+    b.onclick=()=>selectTool(t,b);
+    bar.appendChild(b);
   }
-  // sprites
-  for(const s of Object.keys(SPRITE_TEX)){
-    const btn = document.createElement('div');
-    btn.className = 'tool';
-    btn.textContent = s;
-    btn.onclick = ()=>{ selectTool(s, btn); };
-    bar.appendChild(btn);
+  for(const s in SPRITE_TEX){
+    const b = document.createElement("div");
+    b.className="tool";
+    b.textContent=s;
+    b.onclick=()=>selectTool(s,b);
+    bar.appendChild(b);
   }
-  // erase
-  const er = document.createElement('div');
-  er.className='tool'; er.textContent='erase';
-  er.onclick = ()=>{ selectTool('erase', er); };
+
+  const er = document.createElement("div");
+  er.className="tool";
+  er.textContent="erase";
+  er.onclick=()=>selectTool("erase",er);
   bar.appendChild(er);
-  // pan
-  const p = document.createElement('div');
-  p.className='tool'; p.textContent='pan';
-  p.onclick = ()=>{ selectTool('pan', p); };
-  bar.appendChild(p);
 
-  // default selection
-  const first = bar.querySelector('.tool');
-  if(first){ selectTool(first.textContent, first); }
+  selectTool(Object.keys(TILE_TEX)[0]);
 }
 
-function selectTool(name, btn){
-  document.querySelectorAll('.tool').forEach(el=>el.classList.remove('sel'));
+function selectTool(t,btn){
+  tool=t;
+  document.querySelectorAll('.tool').forEach(e=>e.classList.remove('sel'));
   if(btn) btn.classList.add('sel');
-  tool = name;
 }
 
-/* -----------------------
-   Save / Load
-------------------------*/
-function exportState(){
-  const out = { money, pop, timeTick, map: [] };
-  for(let y=0;y<MAP_H;y++){
-    const row = [];
-    for(let x=0;x<MAP_W;x++){
-      row.push({
-        tile: map[y][x].tile,
-        sprite: map[y][x].sprite ? map[y][x].sprite.userData.type : null
-      });
-    }
-    out.map.push(row);
-  }
-  return JSON.stringify(out);
-}
-function importState(json){
-  try{
-    const obj = JSON.parse(json);
-    money = obj.money || money;
-    pop = obj.pop || pop;
-    timeTick = obj.timeTick || timeTick;
-    for(let y=0;y<MAP_H;y++){
-      for(let x=0;x<MAP_W;x++){
-        const cell = obj.map?.[y]?.[x];
-        if(!cell) continue;
-        if(cell.tile) setTile(x,y,cell.tile);
-        // remove existing
-        if(map[y][x].sprite){ spriteGroup.remove(map[y][x].sprite); map[y][x].sprite = null; }
-        if(cell.sprite) placeBuilding(x,y,cell.sprite);
-      }
-    }
-    updateUI();
-  }catch(e){ console.warn('Import failed', e); }
-}
-
-document.getElementById('btnSave').addEventListener('click', ()=>{
-  const data = exportState();
-  localStorage.setItem('iso_city_save', data);
-  alert('Saved to localStorage');
-});
-document.getElementById('btnLoad').addEventListener('click', ()=>{
-  const data = localStorage.getItem('iso_city_save');
-  if(!data){ alert('No save found'); return; }
-  importState(data);
-});
-document.getElementById('btnReset').addEventListener('click', ()=>{
-  if(confirm('Reset map?')){ initMap(Object.keys(TILE_TEX)[0] || 'grass'); money=200; pop=0; timeTick=0; updateUI(); }
-});
-document.getElementById('btnTick').addEventListener('click', ()=>{
-  timeTick++;
-  let income = 0;
-  for(const s of spriteGroup.children){
-    if(s.userData && s.userData.type === 'farm') income += 6;
-    if(s.userData && s.userData.type === 'house') income -= 1;
-  }
-  money += income;
-  updateUI();
-});
-
-/* -----------------------
-   UI update + animate
-------------------------*/
-function updateUI(){
-  document.getElementById('money').textContent = Math.max(0, Math.floor(money));
-  document.getElementById('pop').textContent = Math.max(0, pop);
-  document.getElementById('time').textContent = timeTick;
-}
-
+/* ============================================================
+   ANIMATE
+============================================================ */
 function animate(){
   requestAnimationFrame(animate);
-  renderer.render(scene, camera);
+  renderer.render(scene,camera);
 }
 animate();
 
-/* -----------------------
-   Init toolbar after assets loaded
-------------------------*/
-buildToolbar();
-updateUI();
+/* ============================================================
+   MAIN
+============================================================ */
+const TILE_TEX = await loadTileAssets();
+const SPRITE_TEX = await loadBuildingAssets();
 
-/* -----------------------
-   Resize handling
-------------------------*/
-window.addEventListener('resize', ()=>{
-  const a = window.innerWidth / window.innerHeight;
-  camera.left = camSize * a / -2;
-  camera.right = camSize * a / 2;
-  camera.top = camSize / 2;
-  camera.bottom = camSize / -2;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+initMap("grass");
+buildToolbar();
 
 </script>
 </body>
