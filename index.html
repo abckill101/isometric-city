@@ -290,6 +290,68 @@ const SPRITE_TEX = await loadBuildingAssets();
 initMap("grass");
 buildToolbar();
 
+initMap("grass");
+buildToolbar();
+
+/* ========== วางโค้ดกริดตรงนี้ ========== */
+
+// --------- Grid overlay (isometric diamond per tile) ----------
+const gridGroup = new THREE.Group();
+scene.add(gridGroup);
+
+const GRID_COLOR = 0x88ccff;
+const GRID_OPACITY = 0.7;
+let showGrid = true;
+
+function makeTileOutline(x, y) {
+  const half = TILE_W / 2;
+  const c = gridToWorld(x, y);
+
+  const p0 = new THREE.Vector3(c.x, 0.01, c.z - half);
+  const p1 = new THREE.Vector3(c.x + half, 0.01, c.z);
+  const p2 = new THREE.Vector3(c.x, 0.01, c.z + half);
+  const p3 = new THREE.Vector3(c.x - half, 0.01, c.z);
+
+  const geom = new THREE.BufferGeometry().setFromPoints([p0,p1,p2,p3,p0]);
+  const mat = new THREE.LineBasicMaterial({
+    color: GRID_COLOR,
+    transparent:true,
+    opacity:GRID_OPACITY
+  });
+
+  const line = new THREE.Line(geom, mat);
+  line.renderOrder = 1000;
+  return line;
+}
+
+function buildGrid(){
+  gridGroup.clear();
+  for(let y=0;y<MAP_H;y++){
+    for(let x=0;x<MAP_W;x++){
+      gridGroup.add(makeTileOutline(x,y));
+    }
+  }
+  gridGroup.visible = showGrid;
+}
+
+function toggleGrid(){
+  showGrid = !showGrid;
+  gridGroup.visible = showGrid;
+}
+
+(function createGridButton(){
+  const bar = document.getElementById('toolbar');
+  const btn = document.createElement('div');
+  btn.className = 'tool';
+  btn.textContent = 'grid';
+  btn.onclick = () => { toggleGrid(); btn.classList.toggle('sel'); };
+  bar.appendChild(btn);
+})();
+
+buildGrid();
+
+/* ========== จบโค้ดกริด ========== */
+
 </script>
 </body>
 </html>
