@@ -53,6 +53,37 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
+// =====================================================
+// 1) ระบบโหลดไฟล์ PNG ผ่าน assets.json  (วางตรงนี้)
+// =====================================================
+
+async function loadTileAssets() {
+  const res = await fetch("tiles/assets.json");
+  const data = await res.json();
+  const loader = new THREE.TextureLoader();
+  const tiles = {};
+
+  for (const file of data.tiles) {
+    const name = file.replace(".png", "");
+    tiles[name] = loader.load("tiles/" + file);
+  }
+
+  return tiles;
+}
+
+async function loadBuildingAssets() {
+  const res = await fetch("buildings/assets.json");
+  const data = await res.json();
+  const loader = new THREE.TextureLoader();
+  const buildings = {};
+
+  for (const file of data.buildings) {
+    const name = file.replace(".png", "");
+    buildings[name] = loader.load("buildings/" + file);
+  }
+
+  return buildings;
+}
 /* -----------------------
    Config
 ------------------------*/
