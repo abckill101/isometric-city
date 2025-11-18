@@ -1,0 +1,10 @@
+{
+  "buildings": [
+    "tree.png",
+    "house.png",
+    "farm.png",
+    "rock.png",
+    "shop.png",
+    "hut.png"
+  ]
+}
