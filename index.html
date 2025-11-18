@@ -131,7 +131,7 @@ const tileGroup = new THREE.Group();
 const spriteGroup = new THREE.Group();
 scene.add(tileGroup, spriteGroup);
 
-const planeGeo = new THREE.PlaneGeometry(TILE_W,TILE_W);
+const planeGeo = new THREE.PlaneGeometry(1, 0.5);
 planeGeo.rotateX(-Math.PI/2);
 
 const map = [];
@@ -143,10 +143,22 @@ function gridToWorld(x,y){
 }
 
 function createTileMesh(x,y,tex){
-  const mat = new THREE.MeshBasicMaterial({map:tex,transparent:true});
+  const mat = new THREE.MeshBasicMaterial({ 
+    map: tex,
+    transparent:true,
+    depthWrite:false,
+    depthTest:false 
+  });
+
+  // จัด texture ให้อยู่กลาง tile
+  tex.center.set(0.5,0.5);
+  tex.rotation = 0;
+
   const mesh = new THREE.Mesh(planeGeo,mat);
   const p = gridToWorld(x,y);
   mesh.position.set(p.x,0,p.z);
+  mesh.renderOrder = y;  // เรียงตามแถว
+
   return mesh;
 }
 
@@ -166,7 +178,7 @@ function initMap(defaultTile){
 function makeSprite(tex){
   const m = new THREE.SpriteMaterial({map:tex,transparent:true});
   const s = new THREE.Sprite(m);
-  s.scale.set(2,2,1);
+  s.scale.set(0.6,0.6,1);
   return s;
 }
 
@@ -177,6 +189,7 @@ function placeBuilding(x,y,name){
   sp.position.set(p.x,0.8,p.z);
   spriteGroup.add(sp);
   map[y][x].sprite = sp;
+  
 }
 
 /* ============================================================
